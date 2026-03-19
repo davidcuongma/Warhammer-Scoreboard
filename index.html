@@ -1,583 +1,393 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
-import { 
-  Sword, Shield, Trophy, Download, Skull, 
-  Terminal, Users, RefreshCw, AlertTriangle, ExternalLink,
-  GitGraph, LayoutGrid, Shuffle, Target, Flame, Settings,
-  RotateCcw, Swords, Crosshair, ZoomIn, ZoomOut, Maximize,
-  Hand
-} from 'lucide-react';
-
-// --- FIREBASE CONFIGURATION ---
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'warzone-cogitator-default';
-
-const SPREADSHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSz5MulRB3tCo20Cyr5KjXeH0VNGQRHc-ibupRJ_R4q9m2sz9E4xypNMfzC2E8eQoZ51R5wtGJvmKHo/pub?output=csv";
-
-// --- ADVANCED FACTION THEMES ---
-const getFactionTheme = (faction) => {
-  const f = (faction || "").toLowerCase();
-  
-  // White - T'au (User request)
-  if (f.includes('tau')) return { color: '#ffffff', glow: 'rgba(255, 255, 255, 0.4)' };
-  
-  // Blue - Ultramarines, Raven Guard, Space Marines
-  if (f.includes('ultra') || f.includes('space marine') || f.includes('raven')) return { color: '#3b82f6', glow: 'rgba(59, 130, 246, 0.5)' };
-  
-  // Frost Blue - Space Wolves, Grey Knights
-  if (f.includes('wolf') || f.includes('grey knight')) return { color: '#7dd3fc', glow: 'rgba(125, 211, 252, 0.4)' };
-  
-  // Red - Blood Angels, World Eaters, Chaos, Word Bearers
-  if (f.includes('blood angel') || f.includes('world eater') || f.includes('chaos') || f.includes('khorne')) return { color: '#ef4444', glow: 'rgba(239, 68, 68, 0.5)' };
-  
-  // Gold - Custodes, Thousand Sons (Aesthetic), Sisters
-  if (f.includes('custodes') || f.includes('sons') || f.includes('sister') || f.includes('adepta')) return { color: '#eab308', glow: 'rgba(234, 179, 8, 0.5)' };
-  
-  // Neon Green - Necrons
-  if (f.includes('necron')) return { color: '#22c55e', glow: 'rgba(34, 197, 94, 0.6)' };
-  
-  // Dark Green - Dark Angels, Imperial Guard
-  if (f.includes('dark angel') || f.includes('guard') || f.includes('militarum')) return { color: '#166534', glow: 'rgba(22, 101, 52, 0.4)' };
-  
-  // Ork Green
-  if (f.includes('ork') || f.includes('waaagh')) return { color: '#4d7c0f', glow: 'rgba(77, 124, 15, 0.4)' };
-  
-  // Sickly Green - Death Guard
-  if (f.includes('death guard') || f.includes('nurgle')) return { color: '#84cc16', glow: 'rgba(132, 204, 22, 0.4)' };
-  
-  // Purple/Pink - Tyranids, Slaanesh
-  if (f.includes('tyranid') || f.includes('hive') || f.includes('slaanesh')) return { color: '#a855f7', glow: 'rgba(168, 85, 247, 0.5)' };
-  
-  // Teal/Magenta - Drukhari, Eldar
-  if (f.includes('drukhari') || f.includes('dark eldar')) return { color: '#0d9488', glow: 'rgba(13, 148, 136, 0.5)' };
-  
-  // Yellow - Eldar / Aeldari
-  if (f.includes('eldar') || f.includes('aeldari')) return { color: '#facc15', glow: 'rgba(250, 204, 21, 0.4)' };
-  
-  // Orange - Votann
-  if (f.includes('votann') || f.includes('league')) return { color: '#f97316', glow: 'rgba(249, 115, 22, 0.4)' };
-
-  // Default Emerald for the Inquisition
-  return { color: '#10b981', glow: 'rgba(16, 185, 129, 0.3)' };
-};
-
-const FactionIcon = ({ faction, className = "w-6 h-6" }) => {
-  const f = (faction || "").toLowerCase();
-  const theme = getFactionTheme(faction);
-  const iconProps = { className, style: { color: theme.color } };
-
-  if (f.includes('tau')) return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" {...iconProps}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><path d="M12 2v20M2 12h20"/></svg>
-  );
-  if (f.includes('ultra') || f.includes('space marine') || f.includes('raven') || f.includes('wolf')) return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...iconProps}><path d="M12 2L4 7v10l8 5 8-5V7l-8-5z"/><path d="M12 22V12m8-5l-8 5-8-5"/><circle cx="12" cy="12" r="3"/></svg>
-  );
-  if (f.includes('chaos') || f.includes('sons') || f.includes('eater')) return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...iconProps}><path d="M12 3l1.45 6.35L20 10.8l-6.35 1.45L12 18.6l-1.45-6.35L4 10.8l6.35-1.45L12 3z"/><circle cx="12" cy="10.8" r="2"/><path d="M12 18.6v3.4M4 10.8H1M20 10.8h3"/></svg>
-  );
-  if (f.includes('necron')) return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...iconProps}><rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 9h6m-6 4h6m-6 4h6"/></svg>
-  );
-  if (f.includes('tyranid')) return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...iconProps}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/><path d="M12 6v6l4 2"/></svg>
-  );
-  if (f.includes('eldar') || f.includes('aeldari')) return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...iconProps}><path d="M12 2L3 21h18L12 2z"/><path d="M12 8v8m-4-4h8"/></svg>
-  );
-  
-  return <Skull {...iconProps} />;
-};
-
-const App = () => {
-  const [user, setUser] = useState(null);
-  const [players, setPlayers] = useState([]);
-  const [matches, setMatches] = useState([]);
-  const [round, setRound] = useState(1);
-  const [bracketType, setBracketType] = useState('single');
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('engagements');
-  
-  const [zoom, setZoom] = useState(1);
-  const [position, setPosition] = useState({ x: 100, y: 100 });
-  const [isDragging, setIsDragging] = useState(false);
-  const lastMousePos = useRef({ x: 0, y: 0 });
-
-  const [logs, setLogs] = useState(["LOG_INIT: Cogitator initializing...", "LOG_AUTH: Neural Link Established."]);
-
-  const addLog = (msg) => {
-    setLogs(prev => [...prev.slice(-5), `LOG_${new Date().toLocaleTimeString()}: ${String(msg)}`]);
-  };
-
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        addLog("ERR_AUTH: Access Denied.");
-      }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!user) return;
-    const tournamentDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'tournament_state', 'main');
-    const unsubscribe = onSnapshot(tournamentDocRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        setPlayers(data.players || []);
-        setMatches(data.matches || []);
-        setRound(data.round || 1);
-        setBracketType(data.bracketType || 'single');
-      }
-      setLoading(false);
-    }, () => setLoading(false));
-    return () => unsubscribe();
-  }, [user]);
-
-  const handleModeSwitch = async (type) => {
-    setBracketType(type);
-    if (!user) return;
-    addLog(`CONFIG: Mode toggled to ${type.toUpperCase()}.`);
-    const tournamentDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'tournament_state', 'main');
-    await updateDoc(tournamentDocRef, { bracketType: type });
-  };
-
-  const shuffleArray = (array) => {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
-  };
-
-  const generateFullBracket = (playerList, type = 'single') => {
-    const numPlayers = playerList.length;
-    const totalRounds = Math.ceil(Math.log2(numPlayers));
-    const totalSlots = Math.pow(2, totalRounds);
-    const matchMap = {};
-
-    const preparedPlayers = [...playerList];
-    const numByes = totalSlots - numPlayers;
-    const bracketPositions = new Array(totalSlots).fill(null);
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Warzone Segmentum: Tournament Cogitator</title>
+    <!-- Machine Spirits: External Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    // Balanced "fair" draft fill
-    for (let i = 0; i < totalSlots / 2; i++) {
-        bracketPositions[i * 2] = preparedPlayers.shift();
-        if (preparedPlayers.length > (numByes - (numByes - (totalSlots - numPlayers - preparedPlayers.length)))) {
-            bracketPositions[i * 2 + 1] = preparedPlayers.shift();
-        } else {
-            bracketPositions[i * 2 + 1] = { id: 'BYE', name: 'LOGISTICAL BYE', faction: 'Mechanicus Support', status: 'Inactive' };
-        }
-    }
-    for(let i=0; i<totalSlots; i++) if (!bracketPositions[i]) bracketPositions[i] = { id: 'BYE', name: 'LOGISTICAL BYE', faction: 'Mechanicus Support', status: 'Inactive' };
-
-    for (let r = 1; r <= totalRounds; r++) {
-      const matchesInRound = Math.pow(2, totalRounds - r);
-      for (let i = 0; i < matchesInRound; i++) {
-        const mid = `M${r}-${i}`;
-        matchMap[mid] = {
-          id: mid,
-          p1: { id: 'TBD', name: 'TBD', faction: 'In Transit' },
-          p2: { id: 'TBD', name: 'TBD', faction: 'In Transit' },
-          p1Odds: "1.80",
-          p2Odds: "1.80",
-          winnerId: null,
-          round: r,
-          type: 'winners',
-          nextMatchId: r < totalRounds ? `M${r + 1}-${Math.floor(i / 2)}` : null
-        };
-      }
-    }
-
-    for (let i = 0; i < totalSlots; i += 2) {
-      const mid = `M1-${i / 2}`;
-      const p1 = bracketPositions[i];
-      const p2 = bracketPositions[i + 1];
-      matchMap[mid].p1 = p1;
-      matchMap[mid].p2 = p2;
-      if (p1.id === 'BYE') matchMap[mid].winnerId = p2.id;
-      else if (p2.id === 'BYE') matchMap[mid].winnerId = p1.id;
-      if (matchMap[mid].winnerId && matchMap[mid].nextMatchId) {
-        const winner = [p1, p2].find(p => p.id === matchMap[mid].winnerId);
-        const isP1Spot = (i / 2) % 2 === 0;
-        matchMap[matchMap[mid].nextMatchId][isP1Spot ? 'p1' : 'p2'] = winner;
-      }
-    }
-
-    let allMatches = Object.values(matchMap);
-    if (type === 'double') {
-      for (let r = 1; r < totalRounds; r++) {
-          const matchesInRound = Math.pow(2, totalRounds - r - 1) || 1;
-          for(let i=0; i < matchesInRound; i++) {
-            allMatches.push({
-                id: `L${r}-${i}`, p1: { id: 'TBD', name: 'TBD (Redemption)', faction: 'Defeated' }, p2: { id: 'TBD', name: 'TBD (Redemption)', faction: 'Defeated' }, p1Odds: "2.00", p2Odds: "2.00", winnerId: null, round: r, type: 'losers'
-            });
-          }
-      }
-    }
-    return allMatches;
-  };
-
-  const syncFromSpreadsheet = async (randomize = false) => {
-    if (!user) return;
-    addLog(`SYNC: ${randomize ? "DRAFTING RANDOMIZED ORDER..." : "SYNCING WITH HUB..."}`);
-    try {
-      const response = await fetch(SPREADSHEET_CSV_URL);
-      const text = await response.text();
-      const rows = text.split('\n').filter(row => row.trim() !== '');
-      const headers = rows[0].split(',').map(h => h.trim().toLowerCase());
-      
-      let parsedPlayers = rows.slice(1).map((row) => {
-        const values = row.split(',').map(v => v.trim());
-        const p = {};
-        headers.forEach((h, i) => p[h] = values[i]);
-        return p;
-      })
-      .filter(p => p.playing === '1')
-      .map((p, idx) => ({
-          id: String(p.id || `P-${idx}`),
-          name: String(p.name || p.player || `Subject_${idx}`),
-          faction: String(p.faction || p.army || 'Unknown'),
-          wins: parseInt(p.wins || 0),
-          losses: parseInt(p.losses || 0),
-          status: 'Active'
-      }));
-
-      if (randomize) parsedPlayers = shuffleArray(parsedPlayers);
-
-      const initialBracket = generateFullBracket(parsedPlayers, bracketType);
-      const tournamentDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'tournament_state', 'main');
-      await setDoc(tournamentDocRef, {
-        players: parsedPlayers, matches: initialBracket, round: 1, bracketType: bracketType, lastUpdated: new Date().toISOString()
-      });
-      addLog(`STATUS: ${parsedPlayers.length} combatants deployed.`);
-    } catch (err) {
-      addLog("ERR: Connection failure.");
-    }
-  };
-
-  const resolveMatch = async (matchId, winnerId) => {
-    if (!user) return;
-    const match = matches.find(m => m.id === matchId);
-    const winner = [match.p1, match.p2].find(p => p.id === winnerId);
-    if (!winner) return;
-
-    const loserId = match.p1.id === winnerId ? match.p2.id : match.p1.id;
-    const loser = [match.p1, match.p2].find(p => p.id === loserId);
-
-    addLog(`RESULT: ${winner.name.toUpperCase()} VICTORIOUS.`);
-
-    const updatedPlayers = players.map(p => {
-      if (p.id === winnerId) return { ...p, wins: (p.wins || 0) + 1 };
-      if (p.id === loserId && p.id !== 'BYE') return { ...p, losses: (p.losses || 0) + 1, status: bracketType === 'double' && match.type === 'winners' ? 'Redemption' : 'Eliminated' };
-      return p;
-    });
-
-    let updatedMatches = matches.map(m => m.id === matchId ? { ...m, winnerId } : m);
-
-    if (match.nextMatchId) {
-      updatedMatches = updatedMatches.map(m => {
-        if (m.id === match.nextMatchId) {
-          const matchIndex = parseInt(matchId.split('-')[1]);
-          const isP1Spot = matchIndex % 2 === 0;
-          return { ...m, [isP1Spot ? 'p1' : 'p2']: winner };
-        }
-        return m;
-      });
-    }
-
-    if (bracketType === 'double' && match.type === 'winners' && loser && loser.id !== 'BYE') {
-        const losersRoundMatchId = `L${match.round}-${Math.floor(parseInt(matchId.split('-')[1]) / 2)}`;
-        updatedMatches = updatedMatches.map(m => {
-            if (m.id === losersRoundMatchId) {
-                const isP1Spot = parseInt(matchId.split('-')[1]) % 2 === 0;
-                return { ...m, [isP1Spot ? 'p1' : 'p2']: loser };
-            }
-            return m;
-        });
-    }
-
-    const tournamentDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'tournament_state', 'main');
-    await updateDoc(tournamentDocRef, { matches: updatedMatches, players: updatedPlayers });
-  };
-
-  const updateOdds = async (matchId, playerIdx, value) => {
-    if (!user) return;
-    const updatedMatches = matches.map(m => {
-      if (m.id === matchId) return { ...m, [playerIdx === 1 ? 'p1Odds' : 'p2Odds']: value };
-      return m;
-    });
-    const tournamentDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'tournament_state', 'main');
-    await updateDoc(tournamentDocRef, { matches: updatedMatches });
-  };
-
-  const advancePhase = async () => {
-    const tournamentDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'tournament_state', 'main');
-    await updateDoc(tournamentDocRef, { round: round + 1 });
-    addLog(`PHASE_SHIFT: Stage 0${round + 1} enabled.`);
-  };
-
-  const handleWheel = (e) => {
-    if (activeTab !== 'tree') return;
-    const zoomSpeed = 0.001;
-    const newZoom = Math.min(Math.max(0.4, zoom - e.deltaY * zoomSpeed), 2);
-    setZoom(newZoom);
-  };
-
-  const handleMouseDown = (e) => {
-    if (activeTab !== 'tree') return;
-    setIsDragging(true);
-    lastMousePos.current = { x: e.clientX, y: e.clientY };
-  };
-
-  const handleMouseMove = (e) => {
-    if (!isDragging || activeTab !== 'tree') return;
-    const dx = e.clientX - lastMousePos.current.x;
-    const dy = e.clientY - lastMousePos.current.y;
-    setPosition(prev => ({ x: prev.x + dx, y: prev.y + dy }));
-    lastMousePos.current = { x: e.clientX, y: e.clientY };
-  };
-
-  const handleMouseUp = () => setIsDragging(false);
-
-  if (!user || loading) return (
-    <div className="min-h-screen bg-black flex items-center justify-center text-green-500 font-mono">
-      <div className="text-center animate-pulse">
-        <Skull size={64} className="mx-auto mb-6" />
-        <p className="tracking-widest uppercase font-black text-xl">Initializing Cogitator...</p>
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="min-h-screen bg-[#050505] text-[#d1d1d1] font-mono p-2 md:p-6 select-none" onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
-      <div className="fixed inset-0 pointer-events-none z-50 opacity-10" 
-           style={{ background: 'linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.4) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.04), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.04))', backgroundSize: '100% 4px, 3px 100%' }}></div>
-      
-      <div className="max-w-7xl mx-auto border-2 border-[#1a2e1a] bg-[#0a0a0a] shadow-[0_0_100px_rgba(0,40,0,0.4)] relative overflow-hidden flex flex-col h-[92vh]">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap');
         
-        {/* HEADER */}
-        <header className="border-b-2 border-[#1a2e1a] p-5 bg-[#0f1a0f]/40 flex flex-col md:flex-row justify-between items-center gap-6 flex-shrink-0">
-          <div className="flex items-center gap-5">
-            <div className="p-3 border-2 border-green-600 rounded-sm bg-green-950/20">
-              <Crosshair className="w-8 h-8 text-green-400 animate-spin-slow" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-black uppercase tracking-tight text-white flex items-center gap-2">
-                Warzone Segmentum <span className="text-xs bg-red-900/40 text-red-500 px-2 py-1 border border-red-500/50 rounded-full animate-pulse">ACTIVE</span>
-              </h1>
-              <div className="flex items-center gap-3 text-[10px] text-green-700 font-bold uppercase mt-1">
-                <span className="w-2 h-2 rounded-full bg-green-500" />
-                Draft Mode: {bracketType.toUpperCase()} // Signal: Optimal
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex flex-wrap justify-center gap-3">
-            <div className="flex border border-[#1a2e1a] rounded overflow-hidden p-1 bg-black/40 mr-4">
-                <button onClick={() => handleModeSwitch('single')} className={`px-4 py-1 text-[10px] font-black uppercase transition-all ${bracketType === 'single' ? 'bg-green-600 text-black shadow-[0_0_10px_rgba(0,255,0,0.3)]' : 'text-green-800'}`}>Single</button>
-                <button onClick={() => handleModeSwitch('double')} className={`px-4 py-1 text-[10px] font-black uppercase transition-all ${bracketType === 'double' ? 'bg-green-600 text-black shadow-[0_0_10px_rgba(0,255,0,0.3)]' : 'text-green-800'}`}>Double</button>
-            </div>
-            <button onClick={() => syncFromSpreadsheet(false)} className="bg-green-900/10 hover:bg-green-600 hover:text-black border border-green-600 px-4 py-2 text-[10px] font-black uppercase flex items-center gap-2"><RefreshCw size={14} /> Sync</button>
-            <button onClick={() => syncFromSpreadsheet(true)} className="bg-green-900/10 hover:bg-amber-600 hover:text-black border border-amber-600 px-4 py-2 text-[10px] font-black uppercase flex items-center gap-2"><Shuffle size={14} /> Draft</button>
-          </div>
-        </header>
+        body { 
+            font-family: 'JetBrains Mono', monospace; 
+            background: #000; 
+            height: 100vh; 
+            overflow: hidden; 
+            margin: 0; 
+            color: #d1d1d1;
+        }
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 flex-grow overflow-hidden">
-          <aside className="lg:col-span-3 border-r-2 border-[#1a2e1a] p-5 bg-black/40 overflow-y-auto custom-scrollbar">
-            <h2 className="text-[11px] font-black border-b border-[#1a2e1a] mb-5 pb-2 uppercase flex items-center gap-2 text-green-500">
-              <Users size={14} /> Combat Order
-            </h2>
-            <div className="space-y-2 mb-10">
-              {players.map(p => {
-                const theme = getFactionTheme(p.faction);
-                return (
-                  <div key={p.id} style={{ borderColor: theme.color + '40', backgroundColor: theme.color + '08' }} className={`p-3 border flex items-center gap-4 transition-all ${p.status === 'Eliminated' ? 'opacity-20 grayscale' : (p.status === 'Redemption' ? 'border-red-900 bg-red-950/10' : 'hover:bg-green-500/10')}`}>
-                    <FactionIcon faction={p.faction} className="w-6 h-6" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between text-[11px] font-black uppercase truncate text-white">
-                        <span>{String(p.name)}</span>
-                        <span style={{ color: theme.color }}>{p.wins}-{p.losses}</span>
-                      </div>
-                      <div className="text-[9px] uppercase font-bold truncate opacity-60 tracking-tighter" style={{ color: theme.color }}>{String(p.faction)}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <h2 className="text-[11px] font-black border-b border-[#1a2e1a] mb-3 pb-2 uppercase flex items-center gap-2 text-green-500">
-              <Terminal size={14} /> Neural Feed
-            </h2>
-            <div className="space-y-2 text-[10px] font-mono text-zinc-600 italic leading-tight">
-              {logs.map((log, i) => (
-                <div key={i} className={i === logs.length - 1 ? "text-green-400 font-bold translate-x-1" : ""}><span className="text-zinc-800 mr-2">»</span> {String(log)}</div>
-              ))}
-            </div>
-          </aside>
-
-          <main className="lg:col-span-9 bg-[radial-gradient(circle_at_center,_#0d140d_0%,_#000000_100%)] flex flex-col overflow-hidden">
-            <div className="p-6 flex flex-col flex-grow overflow-hidden">
-              <div className="flex gap-2 p-1 border border-[#1a2e1a] bg-black/60 rounded-sm mb-6 flex-shrink-0">
-                <button onClick={() => setActiveTab('engagements')} className={`flex-1 py-3 text-[11px] font-black uppercase transition-all flex items-center justify-center gap-3 border ${activeTab === 'engagements' ? 'bg-green-600 text-black border-green-600 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'text-zinc-600 border-transparent hover:text-green-600'}`}>
-                  <LayoutGrid size={16}/> Theatre of War
-                </button>
-                <button onClick={() => setActiveTab('tree')} className={`flex-1 py-3 text-[11px] font-black uppercase transition-all flex items-center justify-center gap-3 border ${activeTab === 'tree' ? 'bg-green-600 text-black border-green-600 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'text-zinc-600 border-transparent hover:text-green-600'}`}>
-                  <GitGraph size={16}/> Strategic Tree
-                </button>
-              </div>
-
-              {activeTab === 'engagements' && (
-                <div className="flex-grow overflow-y-auto custom-scrollbar p-1">
-                  <div className="flex items-center justify-between gap-4 border-l-4 border-green-600 pl-6 mb-8">
-                    <h2 className="text-2xl font-black uppercase tracking-tighter text-white">Phase 0{round}</h2>
-                    {matches.filter(m => m.round === round && m.winnerId).length === matches.filter(m => m.round === round).length && (
-                      <button onClick={advancePhase} className="px-10 py-3 bg-red-700 text-white text-[11px] font-black uppercase animate-bounce border-b-4 border-red-900">Phase Shift</button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10 pb-10">
-                    {matches.filter(m => m.round === round && m.type === 'winners').map((match, i) => (
-                      <EngagementCard key={match.id} match={match} onWin={resolveMatch} onUpdateOdds={updateOdds} i={i} />
-                    ))}
-                  </div>
-                  {bracketType === 'double' && (
-                    <div className="mt-16 space-y-8">
-                      <h3 className="text-xl font-black uppercase text-red-600 border-l-4 border-red-600 pl-6">Redemption Theatre</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-10 pb-10">
-                        {matches.filter(m => m.round === round && m.type === 'losers').map((match, i) => (
-                          <EngagementCard key={match.id} match={match} onWin={resolveMatch} onUpdateOdds={updateOdds} i={i} isRedemption />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {activeTab === 'tree' && (
-                <div className="flex-grow relative overflow-hidden bg-black/40 rounded-lg border border-[#1a2e1a] cursor-grab active:cursor-grabbing" onWheel={handleWheel} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove}>
-                  <div className="absolute top-4 right-4 z-50 flex gap-2">
-                    <button onClick={() => { setZoom(1); setPosition({x: 100, y: 100}); }} className="p-2 bg-black border border-green-900 text-green-500 hover:bg-green-900 hover:text-black rounded transition-all"><Maximize size={16}/></button>
-                  </div>
-                  <div className="p-20 transition-transform duration-75" style={{ transform: `translate(${position.x}px, ${position.y}px) scale(${zoom})`, transformOrigin: '0 0', width: 'max-content' }}>
-                    <div className="flex gap-24">
-                      {Array.from({ length: Math.ceil(Math.log2(players.length || 2)) }).map((_, rIdx) => {
-                        const r = rIdx + 1;
-                        return (
-                          <div key={r} className="flex flex-col justify-around gap-16">
-                            <h4 className="text-[11px] font-black text-green-700 uppercase border-b border-[#1a2e1a] pb-3 mb-8 text-center tracking-[0.2em]">Stage 0{r}</h4>
-                            <div className="flex flex-col gap-20">
-                              {matches.filter(m => m.round === r && m.type === 'winners').map(m => <TreeNode key={m.id} match={m} />)}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  <div className="absolute bottom-4 left-4 text-[9px] text-zinc-700 font-black flex items-center gap-2 bg-black/60 px-2 py-1"><Hand size={12}/> Drag to pan // <Settings size={12}/> Scroll to zoom</div>
-                </div>
-              )}
-            </div>
-          </main>
-        </div>
-
-        <footer className="border-t-2 border-[#1a2e1a] p-5 bg-black flex justify-between items-center text-[10px] font-black tracking-[0.4em] uppercase flex-shrink-0">
-          <div className="text-zinc-700 flex items-center gap-5">
-            <span className="text-green-900 font-bold">WAR_COG_v.6.0</span>
-            <span className="opacity-40">|</span>
-            <span>Neural Link: STABLE</span>
-          </div>
-          <span className="text-green-500 drop-shadow-[0_0_5px_rgba(34,197,94,0.5)]">FOR THE GOLDEN THRONE!</span>
-        </footer>
-      </div>
-
-      <style dangerouslySetInnerHTML={{ __html: `
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@800&display=swap');
-        body { font-family: 'JetBrains Mono', monospace; background: #000; height: 100vh; overflow: hidden; }
-        .custom-scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
+        /* Tactical Scrollbars */
+        .custom-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #000; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #1a2e1a; border-radius: 0px; border: 2px solid black; }
-        .animate-spin-slow { animation: spin 8s linear infinite; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #1a2e1a; border-radius: 0px; border: 1px solid black; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #22c55e; }
+
+        /* Animation Spirits */
+        .animate-spin-slow { animation: spin 12s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}} />
-    </div>
-  );
-};
+        
+        @keyframes flicker {
+          0% { opacity: 0.95; } 5% { opacity: 0.85; } 10% { opacity: 0.99; } 
+          100% { opacity: 0.98; }
+        }
+        .cogitator-flicker { animation: flicker 0.2s infinite; }
 
-const EngagementCard = ({ match, onWin, onUpdateOdds, i, isRedemption = false }) => (
-  <div className="relative group">
-    <div className={`absolute -top-3 left-8 bg-black px-3 text-[10px] font-black border-2 z-10 uppercase transition-all ${isRedemption ? 'text-red-500 border-red-700' : 'text-green-500 border-green-700'}`}>Engagement 0{i + 1}</div>
-    <div className={`border-2 p-1 shadow-lg transition-all ${isRedemption ? 'border-red-900 bg-red-950/10' : 'border-[#1a2e1a] bg-[#0d140d]/40'}`}>
-      <PlayerLine player={match.p1} odds={match.p1Odds} isWinner={match.winnerId === match.p1.id} onWin={() => onWin(match.id, match.p1.id)} onUpdateOdds={(val) => onUpdateOdds(match.id, 1, val)} showAction={!match.winnerId} />
-      <div className="flex items-center justify-center py-3"><div className={`h-[1px] flex-1 ${isRedemption ? 'bg-red-900' : 'bg-[#1a2e1a]'}`} /><span className={`mx-6 text-[10px] font-black uppercase tracking-[0.3em] ${isRedemption ? 'text-red-700' : 'text-green-800'}`}>VS</span><div className={`h-[1px] flex-1 ${isRedemption ? 'bg-red-900' : 'bg-[#1a2e1a]'}`} /></div>
-      <PlayerLine player={match.p2} odds={match.p2Odds} isWinner={match.winnerId === match.p2.id} onWin={() => onWin(match.id, match.p2.id)} onUpdateOdds={(val) => onUpdateOdds(match.id, 2, val)} showAction={!match.winnerId} />
-    </div>
-  </div>
-);
+        /* Scanline Overlay */
+        .scanlines::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 50;
+            background-size: 100% 4px, 3px 100%;
+            pointer-events: none;
+            opacity: 0.15;
+        }
 
-const PlayerLine = ({ player, odds, isWinner, onWin, onUpdateOdds, showAction }) => {
-  const theme = getFactionTheme(player.faction);
-  return (
-    <div className={`p-5 flex items-center justify-between rounded-sm ${isWinner ? 'bg-white/5 shadow-[inset_0_0_20px_'+theme.glow+']' : 'hover:bg-white/5'}`}>
-      <div className="flex items-center gap-6 min-w-0">
-        <div className={`w-14 h-14 flex items-center justify-center border-2 transition-all relative ${isWinner ? 'border-white bg-black' : 'border-[#1a2e1a] bg-black/40'}`} style={{ borderColor: isWinner ? theme.color : '#1a2e1a' }}>
-          {isWinner ? <Trophy size={24} style={{ color: theme.color }} /> : <FactionIcon faction={player.faction} className="w-9 h-9 opacity-50" />}
-        </div>
-        <div className="min-w-0">
-          <div className={`text-lg font-black uppercase tracking-tighter truncate ${isWinner ? 'text-white' : 'text-zinc-300'}`}>{String(player.name)}</div>
-          <div className="text-[10px] font-bold uppercase truncate italic opacity-80" style={{ color: theme.color }}>{String(player.faction)}</div>
-        </div>
-      </div>
-      <div className="flex items-center gap-4">
-        {!isWinner && player.id !== 'BYE' && player.id !== 'TBD' && (
-          <div className="flex flex-col items-end mr-2"><span className="text-[8px] text-green-900 font-bold uppercase mb-1">Odds</span><input type="text" value={odds || "1.80"} onChange={(e) => onUpdateOdds(e.target.value)} className="bg-black border border-green-900 text-green-500 text-[10px] w-12 text-center p-1 focus:outline-none" /></div>
-        )}
-        {showAction && player.id !== 'BYE' && player.id !== 'TBD' && <button onClick={onWin} className="px-8 py-3 border-2 border-green-600 text-[11px] font-black uppercase hover:bg-green-600 hover:text-black transition-all">WIN</button>}
-        {player.id === 'BYE' && <span className="text-[10px] font-black text-zinc-700 italic uppercase">BYE</span>}
-        {isWinner && <span className="text-[11px] font-black animate-pulse uppercase px-3 py-1 border-2 border-green-500 text-green-400">VICTOR</span>}
-      </div>
-    </div>
-  );
-};
+        .vignette {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            box-shadow: inset 0 0 150px rgba(0,0,0,0.9);
+            pointer-events: none;
+            z-index: 40;
+        }
+    </style>
+</head>
+<body class="scanlines">
+    <div class="vignette"></div>
+    <div id="root"></div>
 
-const TreeNode = ({ match }) => {
-  return (
-    <div className={`w-72 border-2 relative transition-all group overflow-hidden ${match.winnerId ? 'border-green-600 bg-green-950/10 shadow-[0_0_20px_rgba(0,255,0,0.1)]' : 'border-[#1a2e1a] bg-black shadow-2xl'}`}>
-      <div className={`p-4 flex items-center justify-between text-[12px] relative ${match.winnerId === match.p1.id ? 'bg-green-600/10' : ''}`}>
-        <div className="flex items-center gap-3 truncate">
-          <FactionIcon faction={match.p1.faction} className="w-5 h-5" />
-          <span className={`truncate uppercase font-black ${match.winnerId === match.p1.id ? 'text-white' : (match.p1.id === 'TBD' ? 'text-zinc-800' : 'text-zinc-500')}`}>{String(match.p1.name)}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {match.p1.id !== 'TBD' && match.p1.id !== 'BYE' && <span className="text-[8px] text-green-700 font-bold opacity-80">{match.p1Odds}</span>}
-          {match.winnerId === match.p1.id && <Trophy size={14} className="text-green-400" />}
-        </div>
-      </div>
-      <div className="h-[1px] bg-[#1a2e1a] relative"><div className="absolute left-0 top-0 h-full bg-green-600" style={{ width: match.winnerId ? '100%' : '0%' }}></div></div>
-      <div className={`p-4 flex items-center justify-between text-[12px] relative ${match.winnerId === match.p2.id ? 'bg-green-600/10' : ''}`}>
-        <div className="flex items-center gap-3 truncate">
-          <FactionIcon faction={match.p2.faction} className="w-5 h-5" />
-          <span className={`truncate uppercase font-black ${match.winnerId === match.p2.id ? 'text-white' : (match.p2.id === 'TBD' ? 'text-zinc-800' : 'text-zinc-500')}`}>{String(match.p2.name)}</span>
-        </div>
-        <div className="flex items-center gap-2">
-           {match.p2.id !== 'TBD' && match.p2.id !== 'BYE' && <span className="text-[8px] text-green-700 font-bold opacity-80">{match.p2Odds}</span>}
-           {match.winnerId === match.p2.id && <Trophy size={14} className="text-green-400" />}
-        </div>
-      </div>
-      {match.nextMatchId && <div className="absolute top-1/2 -right-24 w-24 h-[2px] bg-[#1a2e1a] -translate-y-1/2"><div className="h-full bg-green-600 transition-all duration-700" style={{ width: match.winnerId ? '100%' : '0%' }}></div></div>}
-    </div>
-  );
-};
+    <script type="text/babel">
+        const SPREADSHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSz5MulRB3tCo20Cyr5KjXeH0VNGQRHc-ibupRJ_R4q9m2sz9E4xypNMfzC2E8eQoZ51R5wtGJvmKHo/pub?output=csv";
 
-export default App;
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        // --- FACTION THEMES (Expanded) ---
+        const getFactionTheme = (faction) => {
+            const f = (faction || "").toLowerCase();
+            if (f.includes('tau')) return { color: '#ffffff', glow: 'rgba(255, 255, 255, 0.4)' };
+            if (f.includes('ultra') || f.includes('space marine') || f.includes('raven')) return { color: '#3b82f6', glow: 'rgba(59, 130, 246, 0.5)' };
+            if (f.includes('blood angel') || f.includes('world eater') || f.includes('chaos')) return { color: '#ef4444', glow: 'rgba(239, 68, 68, 0.5)' };
+            if (f.includes('custodes') || f.includes('sons') || f.includes('adepta')) return { color: '#eab308', glow: 'rgba(234, 179, 8, 0.5)' };
+            if (f.includes('necron')) return { color: '#22c55e', glow: 'rgba(34, 197, 94, 0.6)' };
+            if (f.includes('tyranid')) return { color: '#a855f7', glow: 'rgba(168, 85, 247, 0.5)' };
+            if (f.includes('eldar') || f.includes('aeldari')) return { color: '#facc15', glow: 'rgba(250, 204, 21, 0.4)' };
+            if (f.includes('ork')) return { color: '#4d7c0f', glow: 'rgba(77, 124, 15, 0.4)' };
+            return { color: '#10b981', glow: 'rgba(16, 185, 129, 0.3)' };
+        };
+
+        // --- ICON SPIRITS ---
+        const Icons = {
+            Target: ({className}) => (
+                <svg className={className} width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" opacity="0.3"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
+                    <path d="M12 2v4m0 12v4M2 12h4m12 0h4" opacity="0.5"/>
+                </svg>
+            ),
+            Trophy: ({style, size=24}) => <svg width={size} height={size} style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>,
+            Faction: ({faction, className}) => {
+                const theme = getFactionTheme(faction);
+                return (
+                    <svg className={className} style={{color: theme.color}} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="9" opacity="0.2" />
+                        <path d="M12 2v20M2 12h20" strokeWidth="1" opacity="0.3" />
+                        <path d="M9 12l2 2 4-4" />
+                    </svg>
+                );
+            }
+        };
+
+        const App = () => {
+            const [players, setPlayers] = useState([]);
+            const [matches, setMatches] = useState([]);
+            const [round, setRound] = useState(1);
+            const [activeTab, setActiveTab] = useState('engagements');
+            const [loading, setLoading] = useState(false);
+            const [logs, setLogs] = useState(["LOG_INIT: Standalone mode active.", "LOG_UPLINK: Waiting for Hub sync..."]);
+            
+            const [zoom, setZoom] = useState(1);
+            const [position, setPosition] = useState({ x: 50, y: 50 });
+            const [isDragging, setIsDragging] = useState(false);
+            const lastMousePos = useRef({ x: 0, y: 0 });
+
+            useEffect(() => { syncHub(); }, []);
+
+            const addLog = (msg) => setLogs(prev => [...prev.slice(-4), `LOG_${new Date().toLocaleTimeString().split(' ')[0]}: ${msg}`]);
+
+            const syncHub = async (randomize = false) => {
+                setLoading(true);
+                addLog(randomize ? "DRAFT: Randomizing battle order..." : "FETCH: Contacting Segmentum Hub...");
+                try {
+                    const res = await fetch(SPREADSHEET_CSV_URL);
+                    const text = await res.text();
+                    const rows = text.split('\n').map(r => r.split(','));
+                    const headers = rows[0].map(h => h.trim().toLowerCase());
+                    
+                    let data = rows.slice(1).map(row => {
+                        let obj = {};
+                        headers.forEach((h, i) => obj[h] = (row[i] || "").trim());
+                        return obj;
+                    }).filter(p => p.playing === '1');
+
+                    if (randomize) data = data.sort(() => Math.random() - 0.5);
+
+                    const totalSlots = Math.pow(2, Math.ceil(Math.log2(data.length)));
+                    const prepared = data.map((p, i) => ({ 
+                        id: String(i), name: p.player || p.name, faction: p.army || p.faction, 
+                        wins: 0, losses: 0 
+                    }));
+                    
+                    const bracketPos = new Array(totalSlots).fill(null);
+                    const pList = [...prepared];
+                    for(let i=0; i<totalSlots/2; i++) {
+                        bracketPos[i*2] = pList.shift();
+                        if (pList.length > (totalSlots - data.length - i)) bracketPos[i*2+1] = pList.shift();
+                        else bracketPos[i*2+1] = { id: 'BYE', name: 'LOGISTICAL BYE', faction: 'Mechanicus Support' };
+                    }
+
+                    const matchMap = {};
+                    const totalPhases = Math.log2(totalSlots);
+                    for(let r=1; r<=totalPhases; r++) {
+                        const count = Math.pow(2, totalPhases - r);
+                        for(let i=0; i<count; i++) {
+                            const mid = `M${r}-${i}`;
+                            matchMap[mid] = {
+                                id: mid, p1: {id:'TBD', name:'TBD', faction:'Transit'}, p2: {id:'TBD', name:'TBD', faction:'Transit'},
+                                winnerId: null, round: r, p1Odds: "1.80", p2Odds: "1.80",
+                                nextMatchId: r < totalPhases ? `M${r+1}-${Math.floor(i/2)}` : null
+                            };
+                        }
+                    }
+
+                    for(let i=0; i<totalSlots; i+=2) {
+                        const mid = `M1-${i/2}`;
+                        const p1 = bracketPos[i];
+                        const p2 = bracketPos[i+1];
+                        matchMap[mid].p1 = p1;
+                        matchMap[mid].p2 = p2;
+                        if (p1.id === 'BYE') matchMap[mid].winnerId = p2.id;
+                        else if (p2.id === 'BYE') matchMap[mid].winnerId = p1.id;
+                        if (matchMap[mid].winnerId && matchMap[mid].nextMatchId) {
+                            const win = [p1, p2].find(p => p.id === matchMap[mid].winnerId);
+                            const isP1 = (i/2) % 2 === 0;
+                            matchMap[matchMap[mid].nextMatchId][isP1 ? 'p1' : 'p2'] = win;
+                        }
+                    }
+
+                    setPlayers(prepared);
+                    setMatches(Object.values(matchMap));
+                    setRound(1);
+                    setLoading(false);
+                    addLog(`SYNC: ${data.length} combatants deployed.`);
+                } catch (err) {
+                    addLog("ERR: Neural Link failure.");
+                    setLoading(false);
+                }
+            };
+
+            const resolveWin = (mId, pId) => {
+                const match = matches.find(m => m.id === mId);
+                const winner = [match.p1, match.p2].find(p => p.id === pId);
+                addLog(`PURGE: ${winner.name.toUpperCase()} VICTORIOUS.`);
+                setMatches(prev => {
+                    let updated = prev.map(m => m.id === mId ? {...m, winnerId: pId} : m);
+                    if (match.nextMatchId) {
+                        const nextIdx = updated.findIndex(m => m.id === match.nextMatchId);
+                        if (nextIdx !== -1) {
+                            const isP1 = parseInt(mId.split('-')[1]) % 2 === 0;
+                            updated[nextIdx][isP1 ? 'p1' : 'p2'] = winner;
+                        }
+                    }
+                    return updated;
+                });
+            };
+
+            const updateOdds = (mId, pIdx, val) => {
+                setMatches(prev => prev.map(m => m.id === mId ? {...m, [pIdx === 1 ? 'p1Odds' : 'p2Odds']: val} : m));
+            };
+
+            const handleWheel = (e) => {
+                if (activeTab !== 'tree') return;
+                setZoom(z => Math.min(Math.max(0.4, z - e.deltaY * 0.001), 2));
+            };
+
+            const handleMouseDown = (e) => {
+                if (activeTab !== 'tree') return;
+                setIsDragging(true);
+                lastMousePos.current = { x: e.clientX, y: e.clientY };
+            };
+
+            const handleMouseMove = (e) => {
+                if (!isDragging || activeTab !== 'tree') return;
+                const dx = e.clientX - lastMousePos.current.x;
+                const dy = e.clientY - lastMousePos.current.y;
+                setPosition(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+                lastMousePos.current = { x: e.clientX, y: e.clientY };
+            };
+
+            if (loading) return <div className="h-screen bg-black flex flex-col items-center justify-center text-green-500 font-black tracking-widest uppercase gap-4"><div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>AWAKENING COGITATOR...</div>;
+
+            return (
+                <div className="flex flex-col h-screen text-[#d1d1d1] p-6 select-none bg-[#050505] relative z-10" onMouseUp={() => setIsDragging(false)} onMouseLeave={() => setIsDragging(false)}>
+                    <header className="flex justify-between items-center border-b-2 border-[#1a2e1a] pb-6 mb-6 bg-[#0f1a0f]/20 p-4">
+                        <div className="flex items-center gap-6">
+                            <Icons.Target className="animate-spin-slow text-green-500" />
+                            <div>
+                                <h1 className="text-3xl font-black text-white tracking-tighter uppercase">Warzone Segmentum</h1>
+                                <div className="flex items-center gap-2 text-[9px] text-green-800 font-bold uppercase mt-1">
+                                    <span className="w-2 h-2 rounded-full bg-green-500 animate-ping" />
+                                    Neural Uplink: Active // Sector 001-A
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex gap-3">
+                            <button onClick={() => syncHub(false)} className="px-6 py-2 border-2 border-green-600 text-[10px] font-black hover:bg-green-600 hover:text-black transition-all bg-green-900/10 uppercase">Sync Hub</button>
+                            <button onClick={() => syncHub(true)} className="px-6 py-2 border-2 border-amber-600 text-[10px] font-black hover:bg-amber-600 hover:text-black transition-all bg-amber-900/10 uppercase">Draft</button>
+                        </div>
+                    </header>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-12 flex-grow overflow-hidden gap-6">
+                        {/* Sidebar: Tactical Bio */}
+                        <aside className="lg:col-span-3 border-r-2 border-[#1a2e1a] p-4 bg-black/40 flex flex-col">
+                            <h2 className="text-[11px] font-black border-b border-[#1a2e1a] mb-5 pb-2 uppercase text-green-500 flex items-center gap-2">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                Battle Roster
+                            </h2>
+                            <div className="space-y-2 mb-8 overflow-y-auto custom-scrollbar flex-grow pr-2">
+                                {players.map(p => {
+                                    const theme = getFactionTheme(p.faction);
+                                    return (
+                                        <div key={p.id} className="p-3 border border-[#1a2e1a] bg-green-950/5 flex items-center gap-4 transition-all">
+                                            <Icons.Faction faction={p.faction} className="w-6 h-6" />
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-[11px] font-black uppercase truncate text-white">{p.name}</span>
+                                                </div>
+                                                <div className="text-[9px] font-bold uppercase italic opacity-50 truncate" style={{color: theme.color}}>{p.faction}</div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <h2 className="text-[11px] font-black border-b border-[#1a2e1a] mb-3 pb-2 uppercase text-green-500">Neural Feed</h2>
+                            <div className="space-y-2 text-[10px] font-mono text-zinc-600 italic leading-tight">
+                                {logs.map((log, i) => (
+                                    <div key={i} className={i === logs.length - 1 ? "text-green-400 font-bold" : ""}>» {log}</div>
+                                ))}
+                            </div>
+                        </aside>
+
+                        {/* Main Interaction Area */}
+                        <main className="lg:col-span-9 flex flex-col overflow-hidden">
+                            <div className="flex gap-2 p-1 border border-[#1a2e1a] bg-black/60 rounded-sm mb-6 flex-shrink-0">
+                                <button onClick={() => setActiveTab('engagements')} className={`flex-1 py-3 text-[11px] font-black uppercase transition-all flex items-center justify-center gap-3 border ${activeTab === 'engagements' ? 'bg-green-600 text-black border-green-600 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'text-zinc-600 border-transparent hover:text-green-600'}`}>Theatre of War</button>
+                                <button onClick={() => setActiveTab('tree')} className={`flex-1 py-3 text-[11px] font-black uppercase transition-all flex items-center justify-center gap-3 border ${activeTab === 'tree' ? 'bg-green-600 text-black border-green-600 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'text-zinc-600 border-transparent hover:text-green-600'}`}>Strategic Tree</button>
+                            </div>
+
+                            <div className="flex-grow bg-[#0a0a0a] border-2 border-[#1a2e1a] rounded-sm overflow-hidden relative shadow-2xl bg-[radial-gradient(circle_at_center,_#0d140d_0%,_#000000_100%)]">
+                                {activeTab === 'engagements' ? (
+                                    <div className="p-10 overflow-y-auto h-full custom-scrollbar grid grid-cols-1 md:grid-cols-2 gap-10">
+                                        {matches.filter(m => m.round === round).map(m => (
+                                            <EngagementCard key={m.id} match={m} onWin={resolveWin} onUpdateOdds={updateOdds} />
+                                        ))}
+                                        {matches.filter(m => m.round === round && m.winnerId).length === matches.filter(m => m.round === round).length && matches.some(m => m.round === round+1) && (
+                                            <div className="col-span-full flex justify-center mt-4">
+                                                <button onClick={() => setRound(r => r + 1)} className="px-12 py-4 bg-red-700 text-white text-xs font-black uppercase animate-bounce border-b-4 border-red-900 shadow-2xl">Initiate Phase 0{round+1}</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="w-full h-full cursor-grab active:cursor-grabbing overflow-hidden" onWheel={handleWheel} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove}>
+                                        <div className="p-20 transition-transform duration-75" style={{ transform: `translate(${position.x}px, ${position.y}px) scale(${zoom})`, transformOrigin: '0 0', width: 'max-content' }}>
+                                            <div className="flex gap-24">
+                                                {Array.from({length: Math.ceil(Math.log2(players.length || 2)) + 1}).map((_, rIdx) => {
+                                                    const r = rIdx + 1;
+                                                    const roundMatches = matches.filter(m => m.round === r);
+                                                    if (roundMatches.length === 0) return null;
+                                                    return (
+                                                        <div key={rIdx} className="flex flex-col gap-10 justify-around">
+                                                            <h4 className="text-[11px] font-black text-green-700 text-center border-b border-[#1a2e1a] pb-3 mb-4 uppercase tracking-[0.2em]">Stage 0{r}</h4>
+                                                            {roundMatches.map(m => <TreeNode key={m.id} match={m} />)}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </main>
+                    </div>
+                    <footer className="mt-4 border-t-2 border-[#1a2e1a] pt-4 text-[10px] font-black text-green-900 flex justify-between tracking-[0.3em] uppercase italic">
+                        <span>Neural Session: Active // WAR_COG_v.6.5</span>
+                        <span className="text-green-500">For the Golden Throne!</span>
+                    </footer>
+                </div>
+            );
+        };
+
+        const EngagementCard = ({ match, onWin, onUpdateOdds }) => (
+            <div className="relative group border-2 border-[#1a2e1a] p-1 bg-black/40 shadow-lg">
+                <div className="absolute -top-3 left-4 bg-black px-2 text-[9px] font-black border border-[#1a2e1a] text-green-600 uppercase z-10">Warzone Grid {match.id}</div>
+                {[ {p: match.p1, o: match.p1Odds, idx: 1}, {p: match.p2, o: match.p2Odds, idx: 2}].map((item, i) => {
+                    const theme = getFactionTheme(item.p.faction);
+                    return (
+                        <div key={i} className={`p-4 flex justify-between items-center transition-all ${match.winnerId === item.p.id ? 'bg-white/5' : ''}`} style={{ boxShadow: match.winnerId === item.p.id ? `inset 0 0 15px ${theme.glow}` : 'none' }}>
+                            <div className="flex items-center gap-4 min-w-0">
+                                <div className={`w-12 h-12 border-2 flex items-center justify-center ${match.winnerId === item.p.id ? 'border-white' : 'border-[#1a2e1a]'}`} style={{borderColor: match.winnerId === item.p.id ? theme.color : '#1a2e1a'}}>
+                                    {match.winnerId === item.p.id ? <Icons.Trophy style={{color: theme.color}} size={20} /> : <Icons.Faction faction={item.p.faction} className="opacity-40" />}
+                                </div>
+                                <div className="min-w-0">
+                                    <div className={`font-black uppercase text-sm truncate ${match.winnerId === item.p.id ? 'text-white' : 'text-zinc-500'}`}>{item.p.name}</div>
+                                    <div className="text-[9px] font-bold uppercase italic opacity-40 truncate" style={{color: theme.color}}>{item.p.faction}</div>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                {!match.winnerId && item.p.id !== 'BYE' && item.p.id !== 'TBD' && (
+                                    <div className="flex flex-col items-end">
+                                        <span className="text-[8px] font-black text-green-900 mb-1">Odds</span>
+                                        <input type="text" value={item.o} onChange={(e) => onUpdateOdds(match.id, item.idx, e.target.value)} className="bg-black border border-green-900 text-green-500 text-[10px] w-12 text-center p-1 focus:outline-none focus:border-green-400" />
+                                    </div>
+                                )}
+                                {!match.winnerId && item.p.id !== 'BYE' && <button onClick={() => onWin(match.id, item.p.id)} className="px-6 py-2 border-2 border-green-600 text-[10px] font-black hover:bg-green-600 hover:text-black transition-all uppercase">Win</button>}
+                                {match.winnerId === item.p.id && <span className="text-[10px] font-black text-green-400 animate-pulse tracking-widest border border-green-500 px-2 py-1 bg-green-950/20">Victor</span>}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        );
+
+        const TreeNode = ({ match }) => (
+            <div className={`w-72 border-2 relative transition-all group ${match.winnerId ? 'border-green-600 bg-green-950/10' : 'border-[#1a2e1a] bg-black shadow-2xl'}`}>
+                {[ {p: match.p1, o: match.p1Odds}, {p: match.p2, o: match.p2Odds}].map((item, pi) => (
+                    <div key={pi}>
+                        <div className={`p-4 flex justify-between items-center text-[12px] relative ${match.winnerId === item.p.id ? 'bg-green-600/10' : ''}`}>
+                            <div className="flex items-center gap-3 truncate">
+                                <Icons.Faction faction={item.p.faction} className="w-5 h-5" />
+                                <span className={`truncate uppercase font-black ${match.winnerId === item.p.id ? 'text-white' : (item.p.id === 'TBD' ? 'text-zinc-800' : 'text-zinc-500')}`}>{item.p.name}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {item.p.id !== 'TBD' && item.p.id !== 'BYE' && <span className="text-[9px] text-green-700 font-bold opacity-60 tracking-wider">{item.o}</span>}
+                                {match.winnerId === item.p.id && <Icons.Trophy size={14} className="text-green-400" />}
+                            </div>
+                        </div>
+                        {pi === 0 && <div className="h-[1px] bg-[#1a2e1a] relative"><div className="absolute left-0 h-full bg-green-600 transition-all duration-700" style={{width: match.winnerId ? '100%' : '0%'}}></div></div>}
+                    </div>
+                ))}
+                {match.nextMatchId && <div className="absolute top-1/2 -right-24 w-24 h-[2px] bg-[#1a2e1a] -translate-y-1/2 overflow-hidden"><div className="h-full bg-green-600 transition-all duration-700" style={{width: match.winnerId ? '100%' : '0%'}}></div></div>}
+            </div>
+        );
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
